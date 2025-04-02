@@ -1,11 +1,11 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 import csv
 from typing import List
 
 
-URL = "https://mate.academy/study"
+URL = "https://mate.academy"
 
 
 def get_html(url: str) -> str:
@@ -22,80 +22,45 @@ class Course:
     modules_count: int = 0
 
 
-def parse_courses(html: str) -> List[Course]:
-    soup = BeautifulSoup(html, "html.parser")
-    courses_container = soup.find(
-        "div", class_="CareerPath_careerPathItem__f_p59"
+def parse_courses(course_block: Tag) -> Course:
+    return Course(
+        name=course_block.select_one(
+            "h3.ProfessionCard_title__m7uno").text.strip(),
+        short_description=course_block.select_one(
+            "p.ProfessionCard_description__K8weo").text.strip(),
+        duration=course_block.select_one(
+            "p.ProfessionCard_duration__13PwX").text.strip(),
     )
-
-    courses = []
-    course_elements = courses_container.find_all(
-        "h2", class_="typography_platformH2__0YzKL"
-    )
-
-    for course in course_elements:
-        name_tag = course.find("h3")
-        if not name_tag:
-            continue
-
-        name = name_tag.text.strip()
-
-        short_description = (
-            course.find("p")
-            .text.strip() if course.find("p") else "No description"
-        )
-        duration = (
-            course.find("span", class_="duration").text.strip()
-            if course.find("span", class_="duration")
-            else "No duration"
-        )
-
-        modules_count = len(course.find_all("p", class_="Tag_text__WWT2B"))
-
-        courses.append(
-            Course(
-                name=name,
-                short_description=short_description,
-                duration=duration,
-                modules_count=modules_count,
-            )
-        )
-
-    return courses
 
 
 def get_all_courses() -> list[Course]:
-    html = get_html(URL)
-    courses = parse_courses(html)
-
-    # Перевіряємо, які курси реально парсяться
-    course_names = [course.name for course in courses]
-    print("✅ Отримані курси:", course_names)
-
+    courses = []
+    url = URL + "/courses"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, "html.parser")
+    for course_block in soup.select(
+            "div.ProfessionCard_content__mPiVi"):
+        courses.append(parse_courses(course_block))
     return courses
 
 
 def save_courses_to_csv(
-        courses: List[Course], filename: str = "courses.csv"
+        courses: List[Course], output_csv_path: str
 ) -> None:
-    with open(filename, mode="w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=[
-                "name",
-                "short_description",
-                "duration",
-                "modules_count",
-                "topics_count",
-            ],
-        )
-        writer.writeheader()
+    with open(output_csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["name", "short_description", "duration"])
         for course in courses:
-            writer.writerow(asdict(course))
+            writer.writerow([
+                course.name,
+                course.short_description,
+                course.duration])
+
+
+def main(output_csv_path: str) -> None:
+    courses = get_all_courses()
+    save_courses_to_csv(courses, output_csv_path)
 
 
 if __name__ == "__main__":
-    courses = get_all_courses()
-    save_courses_to_csv(courses)
-    for course in courses:
-        print(course)
+    main("courses.csv")
